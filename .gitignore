@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Personal / biometric data - never commit faces or attendance records
+attendance_system/dataset/
+attendance_system/test_dataset/
+attendance_system/frames/
+attendance_system/exports/
+attendance_system/attendance.db
+attendance_system/sessions.json
+*.xlsx
+*.csv
+
+# Model weights (downloaded automatically by InsightFace on first run)
+attendance_system/models/
+*.onnx
+
+# Logs and local files
+error_log.txt
+*.log
+outputs/*.ndjson
+.env

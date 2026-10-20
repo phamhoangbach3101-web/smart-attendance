@@ -1,44 +1,83 @@
-# Smart Attendance System - Computer Vision Assignment
+# Smart Attendance System
 
-## Run
+Face-recognition attendance for classrooms: a webcam or IP camera (RTSP) stream is processed in real time, each student is identified with ArcFace embeddings, and attendance (student ID, name, confidence, timestamp) is written to SQLite and exported to Excel.
 
-```powershell
+Team project for the Computer Vision course (CPV301) at FPT University Hanoi, Group 5, 06/2026.
+**My role:** team lead; I built the face detection and face recognition pipeline.
+
+## How it works
+
+```
+Camera (webcam / RTSP)
+   │  background thread, keeps only the latest frame, auto-reconnects
+   ▼
+Face detection ── SCRFD (InsightFace buffalo_sc): boxes + 5 landmarks
+   │  primary-face selection: tiny background faces are ignored,
+   │  a second significant face blocks the decision
+   ▼
+Face recognition ── ArcFace 512-d embedding + cosine similarity
+   │  accept only if  best score ≥ 0.60  AND  best − second-best ≥ 0.08
+   ▼
+Attendance log ── SQLite + Excel export, PyQt5 desktop UI
+```
+
+Key design choices:
+
+- **Open-set decision.** An unknown person must be rejected, not matched to the closest student. Two conditions are required: an absolute cosine threshold and a margin over the second-best identity, so that two look-alike students do not get confused.
+- **Duplicate enrollment check.** A new student is rejected if their embedding already matches an enrolled identity.
+- **Bystander handling.** A face smaller than 1.2% of the frame and 22% of the primary face is treated as incidental. Any larger second face blocks enrollment and recognition, so attendance is never assigned to the wrong person.
+- **Robust streaming.** Frame capture runs in its own thread with a 1-frame buffer and automatic RTSP reconnection.
+
+All thresholds live in [`attendance_system/config.py`](attendance_system/config.py).
+
+## Project structure
+
+```
+attendance_system/
+├── main.py                  # PyQt5 entry point
+├── config.py                # thresholds, paths, camera source
+├── functions/
+│   ├── face_detector.py     # SCRFD detection, primary-face selection
+│   ├── face_recognizer.py   # ArcFace embeddings, matching, enrollment
+│   ├── stream.py            # threaded camera / RTSP capture
+│   ├── preprocessor.py      # Gaussian denoise + CLAHE (optional)
+│   ├── anti_spoof.py        # liveness check (experimental, off by default)
+│   ├── database.py          # SQLite attendance store
+│   └── biometrics_logger.py # enrollment / attendance image logs
+└── ui/                      # screens and dialogs
+```
+
+## Run it
+
+Requires Python 3.11 and a webcam (or an RTSP URL).
+
+```bash
 cd attendance_system
+python -m venv .venv
+.venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 
-Create/select a class and subject, choose a slot, then select either **Webcam**
-or **IP Camera (RTSP)**. For RTSP, enter a URL beginning with `rtsp://`.
+The InsightFace `buffalo_sc` weights are downloaded automatically into `attendance_system/models/` on the first run.
 
-## Demo sequence
+Demo flow: create a class and subject, then start the camera. Press **C** or **Capture Face** to enroll a student with their ID and name. Turn on **Auto Recognize**; recognized students appear in the attendance log with confidence and time.
 
-1. Start the camera and show the live RTSP/webcam stream.
-2. Click **Capture Face** or press **C** to crop and save the primary face frame.
-3. Use **Enroll** to register one stable face with MSSV and full name.
-4. Enable **Auto Recognize** and show name, MSSV, confidence, date and time.
-5. Show `attendance.xlsx` and the on-screen attendance log.
-6. Let a distant bystander enter the background: a tiny face is ignored, while a
-   second significant face safely blocks enrollment/recognition.
+## Privacy
 
-## Assignment coverage
+Face images and embeddings are biometric personal data. This repository contains **no faces, embeddings or attendance records**: `dataset/`, `attendance.db` and exports are git-ignored. Only enroll people who have given consent.
 
-| Requirement | Implementation |
-|---|---|
-| RTSP stream | Selectable RTSP source, FFmpeg backend, reconnect loop |
-| Video to image frames | Face crop via button or `C`, timestamped JPEG output |
-| Face detection | SCRFD detector, bounding boxes and five landmarks |
-| Face recognition | ArcFace embeddings and cosine similarity |
-| Student/time output | MSSV, name, confidence, date/time in SQLite and Excel |
-| Preprocessing | Gaussian denoise and CLAHE light balancing |
-| Presentation | `outputs/Smart_Attendance_System_Presentation.pptx` |
+## Limitations and roadmap
 
-## Important thresholds
+Current status, stated honestly:
 
-- Recognition cosine score: `0.60`
-- Minimum best-vs-second identity margin: `0.08`
-- Incidental background face: at most `1.2%` of the frame and `22%` of the
-  primary face area
+- **No quantitative evaluation yet.** The thresholds were chosen manually.
+- **Anti-spoofing is experimental and disabled** (`ANTISPOOF_ENABLED = False`). Without the MiniFASNet ONNX model it falls back to a hand-crafted texture heuristic.
+- **Preprocessing (Gaussian + CLAHE) is optional and off by default.**
 
-These values are in `attendance_system/config.py` and should be calibrated with
-the actual classroom camera before the final demonstration.
+Planned:
+
+1. Evaluation set recorded in separate sessions (lighting, pose, unknown people). Metrics: identification accuracy, false-accept, false-reject, unknown-rejection rate, FPS on stated hardware. Threshold chosen from the data.
+2. Multi-sample enrollment, quality filtering and multi-frame confirmation, each measured before vs. after.
+3. Real anti-spoofing (MiniFASNet) tested against printed photos and phone screens.
+4. Recognition core separated from the UI and exposed as a REST API, packaged with Docker.
