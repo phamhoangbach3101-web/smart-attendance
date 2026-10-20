@@ -38,13 +38,18 @@ attendance_system/
 ├── config.py                # thresholds, paths, camera source
 ├── functions/
 │   ├── face_detector.py     # SCRFD detection, primary-face selection
-│   ├── face_recognizer.py   # ArcFace embeddings, matching, enrollment
+│   ├── face_recognizer.py   # ArcFace embeddings, enrollment
+│   ├── matching.py          # open-set decision rule (shared with evaluate.py)
 │   ├── stream.py            # threaded camera / RTSP capture
 │   ├── preprocessor.py      # Gaussian denoise + CLAHE (optional)
 │   ├── anti_spoof.py        # liveness check (experimental, off by default)
 │   ├── database.py          # SQLite attendance store
 │   └── biometrics_logger.py # enrollment / attendance image logs
-└── ui/                      # screens and dialogs
+├── ui/                      # screens and dialogs
+├── evaluate.py              # offline evaluation + threshold sweep
+├── tools/capture_eval.py    # record evaluation images from a webcam
+└── tests/                   # unit tests
+docs/EVALUATION.md           # evaluation protocol
 ```
 
 ## Run it
@@ -62,6 +67,20 @@ python main.py
 The InsightFace `buffalo_sc` weights are downloaded automatically into `attendance_system/models/` on the first run.
 
 Demo flow: create a class and subject, then start the camera. Press **C** or **Capture Face** to enroll a student with their ID and name. Turn on **Auto Recognize**; recognized students appear in the attendance log with confidence and time.
+
+## Evaluation
+
+The decision rule lives in [`functions/matching.py`](attendance_system/functions/matching.py) and is shared by the app and the offline evaluator, so the reported numbers describe exactly what the app does.
+
+```bash
+cd attendance_system
+pip install -r requirements-dev.txt
+python -m pytest tests                                  # unit tests, no camera needed
+python -m tools.capture_eval --person P01 --split enroll  # record evaluation data
+python evaluate.py --data ../eval_data --out ../results/baseline
+```
+
+Protocol, metrics and planned experiments: [docs/EVALUATION.md](docs/EVALUATION.md). Results will be added here once the dataset is recorded.
 
 ## Privacy
 

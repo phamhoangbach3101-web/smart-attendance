@@ -14,6 +14,10 @@ attendance_system/sessions.json
 *.xlsx
 *.csv
 
+# Evaluation data (faces) and raw results; publish aggregate tables only
+eval_data/
+results/
+
 # Model weights (downloaded automatically by InsightFace on first run)
 attendance_system/models/
 *.onnx
