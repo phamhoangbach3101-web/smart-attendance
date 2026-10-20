@@ -82,6 +82,8 @@ python evaluate.py --data ../eval_data --out ../results/baseline
 
 Protocol, metrics and planned experiments: [docs/EVALUATION.md](docs/EVALUATION.md). Results will be added here once the dataset is recorded.
 
+Unit tests: 8/8 passing on Windows 11, Python 3.11.9 (20/10/2026).
+
 ## Privacy
 
 Face images and embeddings are biometric personal data. This repository contains **no faces, embeddings or attendance records**: `dataset/`, `attendance.db` and exports are git-ignored. Only enroll people who have given consent.
