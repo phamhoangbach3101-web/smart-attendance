@@ -1,0 +1,8 @@
+opencv-contrib-python
+Pillow
+numpy
+PyQt5
+insightface
+onnxruntime
+pandas
+openpyxl
