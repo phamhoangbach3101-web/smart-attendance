@@ -11,6 +11,8 @@ sys.excepthook = global_exception_handler
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
+import onnxruntime
+
 from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget
 from config import (APP_MIN_HEIGHT, APP_MIN_WIDTH, APP_TITLE,
                     COLOR_BG_CARD, COLOR_BG_DARK, COLOR_BORDER, COLOR_TEXT,
