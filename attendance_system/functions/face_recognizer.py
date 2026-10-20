@@ -5,6 +5,7 @@ import threading
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
+from functions.matching import match
 _insight_app = None
 
 def get_insight_app(det_size=(640, 640)):
@@ -45,32 +46,21 @@ class FaceRecognizer:
     def recognize_embedding(self, embedding):
         if not self.embeddings_db:
             return {'matched': False, 'score': 0.0}
-        best_match, best_score = (None, -1.0)
-        second_score = -1.0
-        emb_norm = embedding / (np.linalg.norm(embedding) + 1e-06)
         with self._db_lock:
-            database = list(self.embeddings_db.items())
-        for folder, stored in database:
-            if stored.shape[1] != embedding.shape[1]:
-                print(f'[WARNING] Skipping {folder} due to dimension mismatch ({stored.shape[1]} vs {embedding.shape[1]}). Please re-enroll this student!')
-                continue
-            stored_norm = stored / (np.linalg.norm(stored, axis=1, keepdims=True) + 1e-06)
-            scores = stored_norm @ emb_norm.T
-            score = float(scores.max())
-            if score > best_score:
-                second_score = best_score
-                best_score = score
-                best_match = folder
-            elif score > second_score:
-                second_score = score
-        margin = best_score - second_score if second_score > -1 else 1.0
-        if best_match and best_score >= self.threshold and margin >= self.min_margin:
+            database = dict(self.embeddings_db)
+        dim = np.asarray(embedding).reshape(-1).shape[0]
+        for folder, stored in database.items():
+            if stored.shape[1] != dim:
+                print(f'[WARNING] Skipping {folder} due to dimension mismatch ({stored.shape[1]} vs {dim}). Please re-enroll this student!')
+        decision = match(embedding, database, self.threshold, self.min_margin)
+        if decision['matched']:
+            best_match = decision['identity']
             parts = best_match.split('_', 2)
-            return {'class_name': parts[0] if len(parts) > 0 else 'Unknown', 'student_id': parts[1] if len(parts) > 1 else 'Unknown', 'student_name': parts[2].replace('_', ' ') if len(parts) > 2 else 'Unknown', 'score': round(best_score, 4), 'matched': True, 'folder': best_match}
+            return {'class_name': parts[0] if len(parts) > 0 else 'Unknown', 'student_id': parts[1] if len(parts) > 1 else 'Unknown', 'student_name': parts[2].replace('_', ' ') if len(parts) > 2 else 'Unknown', 'score': decision['score'], 'matched': True, 'folder': best_match}
         return {
             'matched': False,
-            'score': round(best_score, 4) if best_score > -1 else 0.0,
-            'ambiguous': best_score >= self.threshold and margin < self.min_margin,
+            'score': decision['score'],
+            'ambiguous': decision['ambiguous'],
         }
 
     def enroll_student(self, class_name, student_id, student_name, aligned_faces, face_crops=None):
