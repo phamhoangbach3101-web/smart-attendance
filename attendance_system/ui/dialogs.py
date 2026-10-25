@@ -11,6 +11,8 @@ from config import (COLOR_BG_DARK, COLOR_BG_CARD, COLOR_TEXT, COLOR_PRIMARY,
                     INCIDENTAL_FACE_MAX_FRAME_RATIO,
                     INCIDENTAL_FACE_MAX_PRIMARY_RATIO, ENABLE_PREPROCESSING)
 from functions.biometrics_logger import BiometricsLogger
+from functions.adaface_service import embed_detected_face
+from functions.identity import parse_student_folder
 
 class CreateSessionDialog(QDialog):
 
@@ -198,10 +200,11 @@ class EnrollDialog(QDialog):
             
         det = primary
         raw = det['raw']
-        if not (hasattr(raw, 'embedding') and raw.embedding is not None):
+        try:
+            emb = embed_detected_face(self.face_recognizer.adaface, self.current_frame, raw).flatten()
+        except Exception:
             self._status('❌ Không trích xuất được embedding – thử lại!', COLOR_DANGER)
             return
-        emb = raw.embedding.flatten()
         match = self.face_recognizer.recognize_embedding(emb.reshape(1, -1))
         if match['matched']:
             self._status(f"⚠️ Khuôn mặt đã đăng ký: {match['student_id']} ({match['student_name']})", COLOR_DANGER)
@@ -229,10 +232,12 @@ class EnrollDialog(QDialog):
             self._enrolling = False
             self.btn_capture.setEnabled(True)
             return
-        safe_name = student_name.replace(' ', '_')
-        student_dir = os.path.join(self.face_recognizer.dataset_dir, f'{class_name}_{student_id}_{safe_name}')
+        # enroll_student returns the normalised folder; reuse it so logs and the
+        # master sheet use the same upper-cased ID and collapsed name.
+        student_dir = os.path.join(self.face_recognizer.dataset_dir, enrolled)
+        parsed = parse_student_folder(enrolled)
         BiometricsLogger.create_enroll_log(student_dir, raw, det['box'])
-        BiometricsLogger.add_student_to_master_sheet(self.face_recognizer.dataset_dir, student_id, student_name)
+        BiometricsLogger.add_student_to_master_sheet(self.face_recognizer.dataset_dir, parsed['id'], parsed['name'])
         self._status(f'✅ Đăng ký thành công: {student_name}!', COLOR_SUCCESS)
         QTimer.singleShot(1200, self.close)
 

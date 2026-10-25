@@ -138,10 +138,14 @@ class BiometricsLogger:
             print(f'[ERROR] Cannot update master attendance sheet: {e}')
 
     @staticmethod
-    def mark_attendance_in_master_sheet(class_dir, student_id, session_col_name):
+    def mark_attendance_in_master_sheet(class_dir, student_id, session_col_name, check_in_time=None):
         import pandas as pd
         excel_path = os.path.join(class_dir, 'attendance.xlsx')
-        now_time = datetime.now().strftime('%H:%M:%S')
+        if check_in_time is None:
+            now_time = datetime.now().strftime('%H:%M:%S')
+        else:
+            # Extract time portion from a full timestamp like '2026-10-21 08:30:15'
+            now_time = check_in_time.split(' ')[1] if ' ' in check_in_time else check_in_time
         try:
             if not os.path.exists(excel_path):
                 df = pd.DataFrame(columns=['Student ID', 'Student Name'])

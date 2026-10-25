@@ -27,3 +27,9 @@ error_log.txt
 *.log
 outputs/*.ndjson
 .env
+
+# Web app
+tools/
+frontend/node_modules/
+frontend/dist/
+attendance_system/backups/

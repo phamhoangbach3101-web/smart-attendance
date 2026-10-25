@@ -13,6 +13,21 @@ class FaceDetector:
             return []
         faces = self._app.get(frame)
         if not faces:
+            h, w = frame.shape[:2]
+            pad_y, pad_x = max(16, int(h * 0.25)), max(16, int(w * 0.25))
+            padded = cv2.copyMakeBorder(frame, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_REFLECT_101)
+            pad_faces = self._app.get(padded)
+            if pad_faces:
+                for pf in pad_faces:
+                    pf.bbox[0] = max(0.0, float(pf.bbox[0] - pad_x))
+                    pf.bbox[1] = max(0.0, float(pf.bbox[1] - pad_y))
+                    pf.bbox[2] = min(float(w), float(pf.bbox[2] - pad_x))
+                    pf.bbox[3] = min(float(h), float(pf.bbox[3] - pad_y))
+                    if pf.kps is not None:
+                        pf.kps[:, 0] -= pad_x
+                        pf.kps[:, 1] -= pad_y
+                faces = pad_faces
+        if not faces:
             return []
         height, width = frame.shape[:2]
         results = []

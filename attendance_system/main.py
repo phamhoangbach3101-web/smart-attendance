@@ -17,7 +17,9 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QStackedWidget
 from config import (APP_MIN_HEIGHT, APP_MIN_WIDTH, APP_TITLE,
                     COLOR_BG_CARD, COLOR_BG_DARK, COLOR_BORDER, COLOR_TEXT,
                     COLOR_TEXT_DIM, DATASET_DIR, DB_PATH,
-                    RECOGNITION_COSINE_THRESHOLD, RECOGNITION_MIN_MARGIN)
+                    RECOGNITION_MIN_MARGIN)
+# Galleries now hold AdaFace embeddings; use AdaFace's threshold, not ArcFace's 0.6.
+from functions.adaface_service import DEFAULT_COSINE_THRESHOLD
 from functions.database import Database
 from functions.face_recognizer import FaceRecognizer
 from ui.screens import SetupScreen, AttendanceApp
@@ -41,7 +43,7 @@ class MainWindow(QMainWindow):
         class_dataset_dir = os.path.join(DATASET_DIR, class_name)
         self.face_recognizer = FaceRecognizer(
             class_dataset_dir,
-            threshold=RECOGNITION_COSINE_THRESHOLD,
+            threshold=DEFAULT_COSINE_THRESHOLD,
             min_margin=RECOGNITION_MIN_MARGIN,
         )
         self.app_screen = AttendanceApp(

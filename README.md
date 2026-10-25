@@ -1,5 +1,8 @@
 # Smart Attendance System
 
+> **Web app (mới):** chạy `Cai-Dat.cmd` một lần, sau đó `Chay-SmartAttendance.cmd`, rồi mở http://127.0.0.1:8000.
+> Hướng dẫn đầy đủ bằng tiếng Việt: [README.vi.md](README.vi.md). Ứng dụng desktop PyQt5 bên dưới vẫn hoạt động trên cùng dữ liệu.
+
 Face-recognition attendance for classrooms: a webcam or IP camera (RTSP) stream is processed in real time, each student is identified with ArcFace embeddings, and attendance (student ID, name, confidence, timestamp) is written to SQLite and exported to Excel.
 
 Team project for the Computer Vision course (CPV301) at FPT University Hanoi, Group 5, 06/2026.

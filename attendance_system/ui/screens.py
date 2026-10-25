@@ -205,7 +205,11 @@ class AttendanceApp(QWidget):
         self._recognition_generation = 0
         self._recognition_result = None
         self._biometrics_logged = set()
-        self.session_col_name = f'Slot {self.slot_number} - ' + datetime.now().strftime('%d/%m/%Y %H:%M')
+        self.session_col_name = (
+            f'{self.class_name} - {self.subject} - '
+            f'Slot {self.slot_number} - '
+            + datetime.now().strftime('%d/%m/%Y')
+        )
         if self.slot_minutes > 0:
             self.deadline = datetime.now() + __import__('datetime').timedelta(minutes=self.slot_minutes)
         else:
@@ -555,16 +559,31 @@ class AttendanceApp(QWidget):
             if result['student_id'] not in self._biometrics_logged:
                 BiometricsLogger.log_attendance(student_dir, det['raw'], det['box'])
                 self._biometrics_logged.add(result['student_id'])
-            BiometricsLogger.mark_attendance_in_master_sheet(
-                self.face_recognizer.dataset_dir, result['student_id'], self.session_col_name
-            )
-            if self.db.save_attendance(
+
+            # Save to SQLite FIRST (single source of truth)
+            inserted = self.db.save_attendance(
                 self.class_name, self.subject, result['student_id'],
                 result['student_name'], result['score'], slot=self.slot_number
-            ):
+            )
+            if inserted:
+                # New record: sync Excel with current time (default)
+                BiometricsLogger.mark_attendance_in_master_sheet(
+                    self.face_recognizer.dataset_dir, result['student_id'], self.session_col_name
+                )
                 QTimer.singleShot(0, lambda n=result['student_name']:
                                   self._set_status(f'{n} checked in!', COLOR_SUCCESS))
                 QTimer.singleShot(0, self._update_dashboard)
+            else:
+                # Already recorded (e.g. slot reopened): sync Excel with
+                # the original DB timestamp to avoid overwriting the check-in time
+                original_ts = self.db.get_attendance_timestamp(
+                    self.class_name, self.subject, result['student_id'],
+                    slot=self.slot_number
+                )
+                BiometricsLogger.mark_attendance_in_master_sheet(
+                    self.face_recognizer.dataset_dir, result['student_id'],
+                    self.session_col_name, check_in_time=original_ts
+                )
         except Exception as exc:
             print(f'[ERROR] Recognition error: {exc}')
         finally:
@@ -636,18 +655,30 @@ class AttendanceApp(QWidget):
                 df['Student ID'] = df['Student ID'].astype(str)
             else:
                 df['Student ID'] = pd.Series(dtype='str')
-            if self.session_col_name not in df.columns:
-                df[self.session_col_name] = ''
+
+            # Ensure all enrolled students have a row
             for sid, sname in enrolled_dict.items():
                 if sid not in df['Student ID'].values:
-                    new_row = {'Student ID': sid, 'Student Name': sname, self.session_col_name: 'X (Absent)'}
+                    new_row = {'Student ID': sid, 'Student Name': sname}
                     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-            def fill_absent(val):
-                if pd.isna(val) or str(val).strip() == '':
-                    return 'X (Absent)'
-                return val
-            df[self.session_col_name] = df[self.session_col_name].apply(fill_absent)
+            # --- Build column from SQLite (single source of truth) ---
+            db_records = self.db.get_attendance_today(
+                self.class_name, self.subject, slot=self.slot_number
+            )
+            # Map student_id -> timestamp from DB
+            present_map = {}
+            for (_cn, _subj, sid, _name, ts, _conf) in db_records:
+                if str(sid) not in present_map:
+                    time_part = ts.split(' ')[1] if ' ' in ts else ts
+                    present_map[str(sid)] = f'Present ({time_part})'
+
+            # Create / overwrite column using DB data
+            col = self.session_col_name
+            df[col] = df['Student ID'].apply(
+                lambda sid: present_map.get(str(sid), 'X (Absent)')
+            )
+
             df.to_excel(excel_path, index=False)
         except Exception as e:
             print(f'[ERROR] Cannot finalize attendance sheet: {e}')

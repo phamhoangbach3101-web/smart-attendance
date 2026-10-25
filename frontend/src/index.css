@@ -1,0 +1,56 @@
+@import "@fontsource/be-vietnam-pro/400.css";
+@import "@fontsource/be-vietnam-pro/500.css";
+@import "@fontsource/be-vietnam-pro/600.css";
+@import "@fontsource/be-vietnam-pro/700.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --color-primary: #16c784;
+  --color-primary-hover: #0da66d;
+  --color-primary-light: #e8f8ef;
+  --color-primary-dark: #087a50;
+  --color-page: #f5fbf7;
+  --color-ink: #1f2937;
+  --color-muted: #6b7280;
+  --color-line: #e2efe7;
+  --color-warn: #f59e0b;
+  --color-warn-light: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-light: #fee2e2;
+  --color-info: #3b82f6;
+  --color-info-light: #dbeafe;
+  --shadow-card: 0 1px 2px rgb(16 80 50 / 0.04), 0 4px 16px rgb(16 80 50 / 0.06);
+  --shadow-pop: 0 12px 32px rgb(16 80 50 / 0.16);
+  --animate-fade-in: fade-in 0.18s ease-out;
+  --animate-slide-up: slide-up 0.22s ease-out;
+  @keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes slide-up { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .card { @apply rounded-[18px] border border-line bg-white shadow-card; }
+  .input {
+    @apply h-11 w-full rounded-xl border border-line bg-white px-3.5 text-[15px] text-ink outline-none transition
+      placeholder:text-muted/70 focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:bg-gray-50 disabled:text-muted;
+  }
+  .label { @apply mb-1.5 block text-sm font-medium text-ink; }
+  .table-head { @apply bg-primary-light/60 text-left text-xs font-semibold uppercase tracking-wide text-primary-dark; }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #cfe5d8; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

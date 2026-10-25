@@ -1,0 +1,6 @@
+# Web backend (in addition to attendance_system/requirements.txt)
+# Tested on Windows 11, Python 3.11.9: fastapi 0.158.0, uvicorn 0.54.0, python-multipart, pydantic 2.14
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+openpyxl>=3.1

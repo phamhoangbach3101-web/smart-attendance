@@ -109,10 +109,15 @@ class Database:
         conn.close()
         return count
 
-    def update_student_info(self, old_id, new_class, new_id, new_name):
+    def update_student_info(self, old_id, new_class, new_id, new_name, old_class=None):
+        # Scope the update to the student's own class: the same Student ID may
+        # exist in another class and its history must not be rewritten.
+        old_class = new_class if old_class is None else old_class
         conn = self._get_conn()
         cursor = conn.cursor()
-        cursor.execute('UPDATE attendance SET class_name=?, student_id=?, student_name=? WHERE student_id=?', (new_class, new_id, new_name, old_id))
+        cursor.execute('UPDATE attendance SET class_name=?, student_id=?, student_name=? '
+                       'WHERE student_id=? AND class_name=?',
+                       (new_class, new_id, new_name, old_id, old_class))
         conn.commit()
         conn.close()
 
@@ -132,3 +137,20 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    def get_attendance_timestamp(self, class_name, subject, student_id, slot=None):
+        """Return the original check-in timestamp for a student on today's date."""
+        today = date.today().isoformat()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        query = ('SELECT timestamp FROM attendance '
+                 'WHERE class_name=? AND subject=? AND student_id=? AND date=?')
+        params = [class_name, subject, student_id, today]
+        if slot is not None:
+            query += ' AND slot=?'
+            params.append(slot)
+        query += ' LIMIT 1'
+        cursor.execute(query, tuple(params))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None

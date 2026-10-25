@@ -27,7 +27,22 @@ class AntiSpoof:
     def enabled(self) -> bool:
         return True
 
-    def predict(self, frame: np.ndarray, bbox) -> dict:
+    @property
+    def has_model(self) -> bool:
+        """True only when the MiniFASNet ONNX model is loaded (not the CV heuristic)."""
+        return self._session is not None
+
+    @staticmethod
+    def _unverified(reason):
+        # Any failure must block attendance: never report an unchecked face as LIVE.
+        return {'is_real': False, 'live_score': 0.0, 'label': 'ERROR', 'error': reason}
+
+    def predict(self, frame: np.ndarray, bbox, allow_texture: bool = True) -> dict:
+        """allow_texture=False refuses the experimental CV fallback when no model is loaded."""
+        if frame is None or getattr(frame, 'size', 0) == 0:
+            return self._unverified('invalid frame')
+        if self._session is None and not allow_texture:
+            return self._unverified('anti-spoof model missing')
         try:
             x, y, w, h = bbox
             pad_x = int(w * 0.2)
@@ -38,14 +53,14 @@ class AntiSpoof:
             y2 = min(frame.shape[0], y + h + pad_y)
             roi = frame[y1:y2, x1:x2]
             if roi.size == 0:
-                return {'is_real': True, 'live_score': 1.0, 'label': 'LIVE'}
+                return self._unverified('empty face region')
             if self._session is not None:
                 return self._predict_onnx(roi)
             else:
                 return self._predict_cv(roi)
         except Exception as e:
             print(f'[ERROR] AntiSpoof.predict: {e}')
-            return {'is_real': True, 'live_score': 1.0, 'label': 'LIVE'}
+            return self._unverified(str(e))
 
     def _predict_onnx(self, roi):
         face_resized = cv2.resize(roi, (_INPUT_W, _INPUT_H))
