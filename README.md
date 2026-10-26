@@ -1,107 +1,179 @@
-# Smart Attendance System
+# Smart Attendance — Điểm danh bằng nhận diện khuôn mặt
 
-> **Web app (mới):** chạy `Cai-Dat.cmd` một lần, sau đó `Chay-SmartAttendance.cmd`, rồi mở http://127.0.0.1:8000.
-> Hướng dẫn đầy đủ bằng tiếng Việt: [README.vi.md](README.vi.md). Ứng dụng desktop PyQt5 bên dưới vẫn hoạt động trên cùng dữ liệu.
+Web app điểm danh sinh viên chạy cục bộ trên Windows: mở trình duyệt tại **http://127.0.0.1:8000**, bật webcam (hoặc camera IP RTSP), hệ thống phát hiện khuôn mặt bằng **SCRFD**, nhận diện bằng **AdaFace IR101** và ghi điểm danh vào **SQLite**, xuất báo cáo **Excel**.
 
-Face-recognition attendance for classrooms: a webcam or IP camera (RTSP) stream is processed in real time, each student is identified with ArcFace embeddings, and attendance (student ID, name, confidence, timestamp) is written to SQLite and exported to Excel.
+Đồ án môn Thị giác máy tính (CPV301), FPT University Hà Nội, Nhóm 5. **Vai trò của tôi:** trưởng nhóm, xây dựng pipeline phát hiện và nhận diện khuôn mặt; sau đó nâng cấp thành web app (FastAPI + React) và chuyển mô hình nhận diện từ ArcFace sang AdaFace.
 
-Team project for the Computer Vision course (CPV301) at FPT University Hanoi, Group 5, 06/2026.
-**My role:** team lead; I built the face detection and face recognition pipeline.
+![Điểm danh trực tiếp](docs/images/app_live.png)
 
-## How it works
+> Mọi ảnh trong README được chụp từ một bản demo với **tên giả** và **khuôn mặt đã làm mờ**.
+
+## Tính năng
+
+- **Lớp & môn học**: tạo/sửa/xoá lớp và cặp lớp–môn; xoá cấu hình không làm mất lịch sử.
+- **Sinh viên**: đăng ký khuôn mặt bằng webcam (tối đa 5 mẫu, mỗi mẫu được kiểm tra ngay) hoặc **import hàng loạt từ file Excel có ảnh**; tìm kiếm, sửa, xoá, xem lịch sử, cập nhật mẫu khuôn mặt.
+- **Phiên điểm danh**: chọn lớp, môn, slot 1–20, thời lượng hoặc không giới hạn; phiên xác định theo *lớp + môn + ngày + slot*, mở lại sẽ tải dữ liệu cũ; hạn giờ do backend quản lý nên tải lại trang không đặt lại bộ đếm.
+- **Điểm danh trực tiếp**: webcam của trình duyệt (qua WebSocket) hoặc camera IP RTSP; khung nhận diện có nhãn chữ + màu (đã nhận diện, người lạ, nhiều khuôn mặt, không thể xác minh, giả mạo); bảng có mặt/vắng cập nhật tức thì.
+- **Lịch sử & báo cáo**: lọc theo ngày, lớp, môn, slot, sinh viên, trạng thái; xuất Excel đúng bộ lọc từ SQLite. Số vắng được tính theo **danh sách sinh viên của từng phiên**, không lấy tổng sinh viên trừ số có mặt.
+- **Cài đặt**: ngưỡng cosine, margin, ngưỡng phát hiện, tốc độ gửi khung hình, tiền xử lý, chống giả mạo, RTSP, tình trạng model, chuyển đổi/rollback embedding.
+- Giao diện xanh lá–trắng, tiếng Việt, dùng được trên **desktop và điện thoại**.
+
+## Ảnh giao diện
+
+| Trang chủ | Lớp & Môn học |
+|---|---|
+| ![Trang chủ](docs/images/app_dashboard.png) | ![Lớp & Môn học](docs/images/app_classes.png) |
+| **Thiết lập phiên** | **Đăng ký khuôn mặt** |
+| ![Thiết lập phiên](docs/images/app_attendance_setup.png) | ![Đăng ký khuôn mặt](docs/images/app_enroll.png) |
+| **Sinh viên** | **Lịch sử & Báo cáo** |
+| ![Sinh viên](docs/images/app_students.png) | ![Lịch sử & Báo cáo](docs/images/app_reports.png) |
+| **Cài đặt** | **Điện thoại** |
+| ![Cài đặt](docs/images/app_settings.png) | <img src="docs/images/mobile_dashboard.png" width="45%"> <img src="docs/images/mobile_live.png" width="45%"> |
+
+## Mô hình cũ và mô hình mới
+
+| | Cũ | Mới |
+|---|---|---|
+| Phát hiện | SCRFD `det_500m` (InsightFace buffalo_sc) | SCRFD `det_500m` (chỉ chạy phần phát hiện) |
+| Nhận diện | ArcFace MobileFaceNet `w600k_mbf` (buffalo_sc) | **AdaFace IR101 WebFace12M** (CVPR 2022), căn chỉnh 112×112 theo 5 điểm mốc |
+| Ngưỡng cosine / margin | 0.60 / 0.08 | 0.45 / 0.08 |
+| Thời gian trích xuất mỗi khuôn mặt (CPU) | 5–7 ms | 640–860 ms |
+
+Các biểu đồ dưới đây được đo trên máy phát triển (Intel i5-13420H, không GPU) với **8 người, mỗi người 1 ảnh đăng ký**. Ảnh "biến đổi" được tạo nhân tạo từ chính ảnh đăng ký (dịch vị trí, thu nhỏ, làm mờ, tối/sáng, nhiễu, nén JPEG, xoay). Đây là phép so sánh **minh hoạ trên tập rất nhỏ**, không phải benchmark độ chính xác; muốn kết luận cần bộ dữ liệu đánh giá riêng theo [docs/EVALUATION.md](docs/EVALUATION.md).
+
+![Cùng một người khi ảnh bị biến đổi](docs/images/compare_robustness.png)
+
+| Biến đổi | Điểm TB — ArcFace cũ | Điểm TB — AdaFace mới | Nhận đúng — cũ | Nhận đúng — mới |
+|---|---|---|---|---|
+| Dịch vị trí | 0.992 | 0.995 | 8/8 | 8/8 |
+| Nhỏ hơn (xa camera) | 0.986 | 0.993 | 8/8 | 8/8 |
+| Mờ (Gaussian 9px) | 0.996 | 0.992 | 8/8 | 8/8 |
+| Tối (×0.45) | 0.947 | **0.986** | 8/8 | 8/8 |
+| Sáng (×1.6) | 0.637 | **0.816** | 7/8 | **8/8** |
+| Nhiễu (σ = 18) | 0.846 | 0.881 | 8/8 | 8/8 |
+| JPEG chất lượng 15 | 0.940 | 0.931 | 8/8 | 8/8 |
+| Xoay 12° | 0.991 | 0.995 | 8/8 | 8/8 |
+
+AdaFace giữ điểm tương đồng ổn định hơn rõ nhất khi ảnh **quá sáng** (0.64 → 0.82) và **tối** (0.95 → 0.99); với ảnh sáng, ArcFace bỏ sót 1/8 người vì điểm rơi sát ngưỡng 0.60. Ở các biến đổi khác hai mô hình tương đương.
+
+![Phân biệt người khác nhau](docs/images/compare_impostor.png)
+
+Với 28 cặp người khác nhau, AdaFace cho điểm thấp hơn (trung bình 0.13, cao nhất 0.31) so với ArcFace (trung bình 0.23, cao nhất 0.42). Khoảng cách từ cặp giống nhau nhất tới ngưỡng là 0.14 (AdaFace, ngưỡng 0.45) và 0.18 (ArcFace, ngưỡng 0.60); cả hai đều không nhận nhầm cặp nào.
+
+![Tốc độ](docs/images/compare_speed.png)
+
+AdaFace IR101 nặng hơn ~100 lần trên CPU. Để giữ trải nghiệm mượt, backend **bám theo khuôn mặt**: khi cùng một khuôn mặt vẫn ở cùng chỗ (IoU ≥ 0.45 và ảnh thu nhỏ 32×32 gần giống khung trước), hệ thống dùng lại kết quả AdaFace gần nhất và chỉ xác minh lại mỗi 2.5 giây (người lạ: 1 giây). Kết quả dùng lại **không bao giờ ghi điểm danh**. Nhờ vậy mỗi khung hình chỉ tốn ~26 ms (trung vị); chỉ khung có người mới mất ~0.7 s. Ngoài ra bộ phát hiện tắt cơ chế *spinning* của ONNX Runtime để không tranh CPU với PyTorch (detect + AdaFace: ~1.4 s → ~0.8 s).
+
+## Kiến trúc
 
 ```
-Camera (webcam / RTSP)
-   │  background thread, keeps only the latest frame, auto-reconnects
-   ▼
-Face detection ── SCRFD (InsightFace buffalo_sc): boxes + 5 landmarks
-   │  primary-face selection: tiny background faces are ignored,
-   │  a second significant face blocks the decision
-   ▼
-Face recognition ── ArcFace 512-d embedding + cosine similarity
-   │  accept only if  best score ≥ 0.60  AND  best − second-best ≥ 0.08
-   ▼
-Attendance log ── SQLite + Excel export, PyQt5 desktop UI
+Trình duyệt (React + TypeScript + Tailwind)
+   │  REST /api/*              │  WebSocket /ws/sessions/{id}: JPEG ~4 fps, mỗi lần 1 khung,
+   │                           │  máy chủ chỉ giữ khung mới nhất (không trễ dồn)
+   ▼                           ▼
+FastAPI (backend/) ── phục vụ luôn frontend đã build tại cùng một địa chỉ
+   ├─ services/sessions.py      phiên, hạn giờ, ghi điểm danh trong 1 transaction (BEGIN IMMEDIATE)
+   ├─ services/recognition.py   pipeline nhận diện, bám khuôn mặt, khoá inference ngoài event loop
+   ├─ services/students.py      đăng ký, sửa, xoá, đồng bộ với thư mục dataset
+   ├─ services/excel_import.py  import sinh viên từ Excel có ảnh (xem trước → xác nhận)
+   ├─ services/migration.py     tính lại embedding AdaFace, sao lưu và rollback
+   ├─ services/reports.py       tổng quan, lịch sử, xuất Excel từ SQLite
+   ├─ services/rtsp.py          camera IP: timeout, tự kết nối lại, preview MJPEG, ẩn mật khẩu
+   └─ services/catalog.py, settings.py
+        ▼
+attendance_system/functions/   FaceDetector (SCRFD), AdaFaceService, FaceRecognizer,
+                               matching.py (ngưỡng + margin), AntiSpoof, Preprocessor
+SQLite attendance.db  +  dataset/<LỚP>/<LỚP>_<MÃ>_<Tên>/embeddings.npy, img_XX.jpg, model_meta.json
 ```
 
-Key design choices:
+**Pipeline mỗi khung hình:** kiểm tra ảnh (≤ 3 MB) → tiền xử lý (tuỳ chọn) → phát hiện khuôn mặt → chọn mặt chính (mặt nhỏ ở xa bị bỏ qua, mặt thứ hai đáng kể → *Nhiều khuôn mặt*) → bám khuôn mặt (nếu trúng thì trả kết quả cũ) → chống giả mạo (nếu bật) → embedding AdaFace → so khớp với danh sách lớp của phiên: chấp nhận khi **cosine ≥ ngưỡng và hơn người thứ hai ≥ margin** → kiểm tra phiên còn mở **trong cùng transaction** → ghi SQLite → trả kết quả.
 
-- **Open-set decision.** An unknown person must be rejected, not matched to the closest student. Two conditions are required: an absolute cosine threshold and a margin over the second-best identity, so that two look-alike students do not get confused.
-- **Duplicate enrollment check.** A new student is rejected if their embedding already matches an enrolled identity.
-- **Bystander handling.** A face smaller than 1.2% of the frame and 22% of the primary face is treated as incidental. Any larger second face blocks enrollment and recognition, so attendance is never assigned to the wrong person.
-- **Robust streaming.** Frame capture runs in its own thread with a 1-frame buffer and automatic RTSP reconnection.
+**Dữ liệu:** SQLite là nguồn chính. Bảng `attendance` cũ được giữ nguyên (chỉ thêm cột) nên app desktop PyQt5 vẫn dùng chung dữ liệu; thêm các bảng `classes`, `courses`, `students`, `sessions`, `session_roster`, `settings`. Chỉ mục duy nhất `(lớp, môn, mã SV, ngày, slot)` chặn điểm danh trùng kể cả khi nhiều request đến cùng lúc. Migration tự sao lưu `attendance.db` vào `attendance_system/backups/` trước khi đổi schema.
 
-All thresholds live in [`attendance_system/config.py`](attendance_system/config.py).
+## Cài đặt và chạy (Windows)
 
-## Project structure
+Yêu cầu: Windows 10/11, **Python 3.11** (đã kiểm thử 3.11.9). Node.js không bắt buộc — nếu máy chưa có, setup tải bản portable vào `tools\node` (có kiểm tra checksum).
+
+1. Cài đặt (một lần):
+
+   ```bash
+   Cai-Dat.cmd
+   ```
+
+   Tạo/dùng `attendance_system\.venv`, cài thư viện Python, kiểm tra model, cài và build giao diện. Không xoá môi trường hay dữ liệu sẵn có.
+
+2. Đặt model vào `attendance_system\models\` (không có trong repo vì dung lượng lớn):
+   - `insightface\models\buffalo_sc\det_500m.onnx` — tự tải khi chạy lần đầu nếu có mạng.
+   - `cvlface_adaface_ir101_webface12m\` — checkpoint [minchul/cvlface_adaface_ir101_webface12m](https://huggingface.co/minchul/cvlface_adaface_ir101_webface12m) (`pretrained_model/model.pt`, `model.yaml` và mã kiến trúc).
+
+3. Chạy:
+
+   ```bash
+   Chay-SmartAttendance.cmd
+   ```
+
+   Trình duyệt tự mở **http://127.0.0.1:8000**. Giữ cửa sổ đen mở trong lúc dùng; đóng nó để dừng server. Phải mở bằng `127.0.0.1`/`localhost` — trình duyệt chặn camera trên địa chỉ IP LAN không có HTTPS.
+
+## Cách dùng
+
+1. **Lớp & Môn học** → tạo lớp (VD `SE1801`) → thêm môn (VD `CPV301`).
+2. **Sinh viên** → *Đăng ký*: chọn lớp, nhập mã và họ tên, bật camera, chụp 3–5 mẫu → *Lưu hồ sơ*. Hoặc tải mẫu Excel, điền danh sách kèm ảnh chân dung và *Import*.
+3. **Điểm danh** → chọn lớp, môn, slot, thời lượng, nguồn camera → *Bắt đầu điểm danh* → *Bật camera*, giữ *Tự động nhận diện* bật; từng sinh viên đứng trước camera.
+4. *Kết thúc phiên* (hoặc để hết giờ): backend từ chối mọi kết quả đến muộn.
+5. **Lịch sử & Báo cáo** → lọc → *Xuất Excel*.
+
+Mã sinh viên được chuẩn hoá một lần ở backend (viết hoa, giữ số 0 ở đầu), họ tên tiếng Việt được chuẩn hoá Unicode và bỏ khoảng trắng thừa.
+
+## Cấu trúc thư mục
 
 ```
-attendance_system/
-├── main.py                  # PyQt5 entry point
-├── config.py                # thresholds, paths, camera source
-├── functions/
-│   ├── face_detector.py     # SCRFD detection, primary-face selection
-│   ├── face_recognizer.py   # ArcFace embeddings, enrollment
-│   ├── matching.py          # open-set decision rule (shared with evaluate.py)
-│   ├── stream.py            # threaded camera / RTSP capture
-│   ├── preprocessor.py      # Gaussian denoise + CLAHE (optional)
-│   ├── anti_spoof.py        # liveness check (experimental, off by default)
-│   ├── database.py          # SQLite attendance store
-│   └── biometrics_logger.py # enrollment / attendance image logs
-├── ui/                      # screens and dialogs
-├── evaluate.py              # offline evaluation + threshold sweep
-├── tools/capture_eval.py    # record evaluation images from a webcam
-└── tests/                   # unit tests
-docs/EVALUATION.md           # evaluation protocol
+backend/                 FastAPI: app.py, schemas, db/migration, services/
+frontend/                React + TypeScript + Vite + Tailwind
+attendance_system/       module nhận diện dùng chung + app desktop PyQt5 cũ (main.py)
+  functions/             face_detector, adaface_service, face_recognizer, matching, identity, anti_spoof…
+  evaluate.py            đánh giá offline + quét ngưỡng (dùng AdaFace như app)
+tests/                   pytest cho backend (model giả + 1 test model thật)
+docs/                    EVALUATION.md, images/
+setup.ps1, run.ps1, Cai-Dat.cmd, Chay-SmartAttendance.cmd
 ```
 
-## Run it
+## API chính
 
-Requires Python 3.11 and a webcam (or an RTSP URL).
+| Nhóm | Endpoint |
+|---|---|
+| Hệ thống | `GET /api/health`, `GET /api/system`, `GET /api/models/status`, `GET /api/models/info`, `POST /api/models/reload` |
+| Lớp / môn | `GET·POST /api/classes`, `PATCH·DELETE /api/classes/{id}`, `GET·POST /api/courses`, `PATCH·DELETE /api/courses/{id}` |
+| Sinh viên | `GET·POST /api/students`, `GET·PATCH·DELETE /api/students/{id}`, `/history`, `/face`, `/photos/{tên}`, `POST /api/enrollment/check`, `POST /api/students/sync` |
+| Import Excel | `GET /api/students/import/template`, `POST /api/students/import/preview`, `POST /api/students/import/commit` |
+| Phiên | `GET·POST /api/sessions`, `GET /api/sessions/{id}`, `/records`, `POST /end`, `POST /reopen` |
+| Nhận diện | `WS /ws/sessions/{id}` (4 byte frame_id + 1 byte cờ ghi + JPEG), `POST /api/sessions/{id}/frame` |
+| RTSP | `POST /api/sessions/{id}/rtsp/start`, `/stop`, `PATCH /rtsp`, `GET /rtsp/status`, `GET /rtsp/stream` (MJPEG) |
+| Báo cáo | `GET /api/history`, `GET /api/reports/export` |
+| Model | `GET /api/models/migration/status`, `POST /api/models/migrate`, `POST /api/models/rollback`, `GET /api/models/calibration` |
+| Cài đặt | `GET·PUT /api/settings` |
+
+Tài liệu tương tác: http://127.0.0.1:8000/docs
+
+## Kiểm thử
 
 ```bash
-cd attendance_system
-python -m venv .venv
-.venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
-python main.py
+attendance_system\.venv\Scripts\python -m pytest tests
 ```
 
-The InsightFace `buffalo_sc` weights are downloaded automatically into `attendance_system/models/` on the first run.
+Kết quả gần nhất (Windows 11, Python 3.11.9): **48 passed, 4 skipped**; test cũ trong `attendance_system/tests`: **10 passed**.
 
-Demo flow: create a class and subject, then start the camera. Press **C** or **Capture Face** to enroll a student with their ID and name. Turn on **Auto Recognize**; recognized students appear in the attendance log with confidence and time.
+- Phần lớn test dùng **model giả** nhưng chạy code thật của detector, recognizer, quy tắc so khớp, anti-spoof, SQLite và API: hai lớp cùng môn/slot/ngày, mở lại phiên, 12 request ghi đồng thời, ID chữ thường/số 0 ở đầu, tên tiếng Việt, người lạ, nhiều khuôn mặt, anti-spoof lỗi, kết quả đến sau khi phiên kết thúc, phiên qua nửa đêm, xuất Excel khớp SQLite, migration DB cũ, bám khuôn mặt… Model giả gắn kèm một vector "ArcFace mồi" cho mỗi khuôn mặt để đảm bảo code chỉ dùng AdaFace.
+- `tests/test_real_model.py` dùng **AdaFace và SCRFD thật** (đăng ký rồi nhận diện qua đúng pipeline).
+- 4 test tích hợp gọi vào server đang chạy và **sửa dữ liệu thật**, nên chỉ chạy khi đặt `SA_LIVE_SERVER_TESTS=1`.
 
-## Evaluation
+## Quyền riêng tư
 
-The decision rule lives in [`functions/matching.py`](attendance_system/functions/matching.py) and is shared by the app and the offline evaluator, so the reported numbers describe exactly what the app does.
+Ảnh khuôn mặt và embedding là dữ liệu sinh trắc học. Mọi xử lý chạy trên máy, không gửi ra ngoài. Repo **không chứa** khuôn mặt, embedding, database hay file điểm danh (`dataset/`, `attendance.db`, `backups/`, `exports/`, model đều nằm trong `.gitignore`). Chỉ đăng ký những người đã đồng ý.
 
-```bash
-cd attendance_system
-pip install -r requirements-dev.txt
-python -m pytest tests                                  # unit tests, no camera needed
-python -m tools.capture_eval --person P01 --split enroll  # record evaluation data
-python evaluate.py --data ../eval_data --out ../results/baseline
-```
+## Hạn chế và hướng phát triển
 
-Protocol, metrics and planned experiments: [docs/EVALUATION.md](docs/EVALUATION.md). Results will be added here once the dataset is recorded.
-
-Unit tests: 8/8 passing on Windows 11, Python 3.11.9 (20/10/2026).
-
-## Privacy
-
-Face images and embeddings are biometric personal data. This repository contains **no faces, embeddings or attendance records**: `dataset/`, `attendance.db` and exports are git-ignored. Only enroll people who have given consent.
-
-## Limitations and roadmap
-
-Current status, stated honestly:
-
-- **No quantitative evaluation yet.** The thresholds were chosen manually.
-- **Anti-spoofing is experimental and disabled** (`ANTISPOOF_ENABLED = False`). Without the MiniFASNet ONNX model it falls back to a hand-crafted texture heuristic.
-- **Preprocessing (Gaussian + CLAHE) is optional and off by default.**
-
-Planned:
-
-1. Evaluation set recorded in separate sessions (lighting, pose, unknown people). Metrics: identification accuracy, false-accept, false-reject, unknown-rejection rate, FPS on stated hardware. Threshold chosen from the data.
-2. Multi-sample enrollment, quality filtering and multi-frame confirmation, each measured before vs. after.
-3. Real anti-spoofing (MiniFASNet) tested against printed photos and phone screens.
-4. Recognition core separated from the UI and exposed as a REST API, packaged with Docker.
+- So sánh mô hình ở trên dùng 8 người, 1 ảnh mỗi người và biến đổi nhân tạo; cần bộ dữ liệu đánh giá thật (nhiều buổi, ánh sáng, góc mặt, người lạ) để chọn ngưỡng có căn cứ.
+- AdaFace trên CPU mất ~0.7 s cho mỗi người mới; có thể tăng tốc bằng xuất ONNX, lượng tử hoá hoặc GPU.
+- Chống giả mạo đang **tắt**: chưa có model MiniFASNet; chế độ texture chỉ là thử nghiệm.
+- Ứng dụng chỉ nghe trên `127.0.0.1` và chưa có đăng nhập; không nên mở ra mạng LAN khi chưa thêm xác thực.
+- Webcam và RTSP thật cần được kiểm thử trên từng máy (xem các trạng thái lỗi camera trong trang điểm danh).
