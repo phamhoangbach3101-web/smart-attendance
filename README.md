@@ -28,7 +28,7 @@ Web app điểm danh sinh viên chạy cục bộ trên Windows: mở trình duy
 | **Sinh viên** | **Lịch sử & Báo cáo** |
 | ![Sinh viên](docs/images/app_students.png) | ![Lịch sử & Báo cáo](docs/images/app_reports.png) |
 | **Cài đặt** | **Điện thoại** |
-| ![Cài đặt](docs/images/app_settings.png) | <img src="docs/images/mobile_dashboard.png" width="45%"> <img src="docs/images/mobile_live.png" width="45%"> |
+| ![Cài đặt](docs/images/app_settings.png) |
 
 ## Mô hình cũ và mô hình mới
 
@@ -63,28 +63,6 @@ Với 28 cặp người khác nhau, AdaFace cho điểm thấp hơn (trung bình
 ![Tốc độ](docs/images/compare_speed.png)
 
 AdaFace IR101 nặng hơn ~100 lần trên CPU. Để giữ trải nghiệm mượt, backend **bám theo khuôn mặt**: khi cùng một khuôn mặt vẫn ở cùng chỗ (IoU ≥ 0.45 và ảnh thu nhỏ 32×32 gần giống khung trước), hệ thống dùng lại kết quả AdaFace gần nhất và chỉ xác minh lại mỗi 2.5 giây (người lạ: 1 giây). Kết quả dùng lại **không bao giờ ghi điểm danh**. Nhờ vậy mỗi khung hình chỉ tốn ~26 ms (trung vị); chỉ khung có người mới mất ~0.7 s. Ngoài ra bộ phát hiện tắt cơ chế *spinning* của ONNX Runtime để không tranh CPU với PyTorch (detect + AdaFace: ~1.4 s → ~0.8 s).
-
-## Kiến trúc
-
-```
-Trình duyệt (React + TypeScript + Tailwind)
-   │  REST /api/*              │  WebSocket /ws/sessions/{id}: JPEG ~4 fps, mỗi lần 1 khung,
-   │                           │  máy chủ chỉ giữ khung mới nhất (không trễ dồn)
-   ▼                           ▼
-FastAPI (backend/) ── phục vụ luôn frontend đã build tại cùng một địa chỉ
-   ├─ services/sessions.py      phiên, hạn giờ, ghi điểm danh trong 1 transaction (BEGIN IMMEDIATE)
-   ├─ services/recognition.py   pipeline nhận diện, bám khuôn mặt, khoá inference ngoài event loop
-   ├─ services/students.py      đăng ký, sửa, xoá, đồng bộ với thư mục dataset
-   ├─ services/excel_import.py  import sinh viên từ Excel có ảnh (xem trước → xác nhận)
-   ├─ services/migration.py     tính lại embedding AdaFace, sao lưu và rollback
-   ├─ services/reports.py       tổng quan, lịch sử, xuất Excel từ SQLite
-   ├─ services/rtsp.py          camera IP: timeout, tự kết nối lại, preview MJPEG, ẩn mật khẩu
-   └─ services/catalog.py, settings.py
-        ▼
-attendance_system/functions/   FaceDetector (SCRFD), AdaFaceService, FaceRecognizer,
-                               matching.py (ngưỡng + margin), AntiSpoof, Preprocessor
-SQLite attendance.db  +  dataset/<LỚP>/<LỚP>_<MÃ>_<Tên>/embeddings.npy, img_XX.jpg, model_meta.json
-```
 
 **Pipeline mỗi khung hình:** kiểm tra ảnh (≤ 3 MB) → tiền xử lý (tuỳ chọn) → phát hiện khuôn mặt → chọn mặt chính (mặt nhỏ ở xa bị bỏ qua, mặt thứ hai đáng kể → *Nhiều khuôn mặt*) → bám khuôn mặt (nếu trúng thì trả kết quả cũ) → chống giả mạo (nếu bật) → embedding AdaFace → so khớp với danh sách lớp của phiên: chấp nhận khi **cosine ≥ ngưỡng và hơn người thứ hai ≥ margin** → kiểm tra phiên còn mở **trong cùng transaction** → ghi SQLite → trả kết quả.
 
