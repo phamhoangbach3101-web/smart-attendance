@@ -43,9 +43,33 @@ def _get_insight_app_locked(det_size):
     global _insight_app
     if _insight_app is None:
         root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models', 'insightface')
-        _insight_app = FaceAnalysis(name='buffalo_sc', root=root, providers=['CPUExecutionProvider'])
-        _insight_app.prepare(ctx_id=0, det_size=det_size)
+        # Detection only: identity embeddings come from AdaFace, so buffalo_sc's
+        # ArcFace head would only cost time (and its vectors must not be matched).
+        app = FaceAnalysis(name='buffalo_sc', root=root, providers=['CPUExecutionProvider'],
+                           allowed_modules=['detection'])
+        app.prepare(ctx_id=0, det_size=det_size)
+        _disable_ort_spinning(app)
+        _insight_app = app
     return _insight_app
+
+
+def _disable_ort_spinning(app):
+    """Stop ONNX Runtime threads from busy-waiting after each run.
+
+    Spinning threads keep the CPU busy right when PyTorch runs AdaFace on the
+    same cores; measured on an i5-13420H this made detect+AdaFace ~1.4 s
+    instead of ~0.8 s per frame.
+    """
+    try:
+        import onnxruntime as ort
+        opts = ort.SessionOptions()
+        opts.add_session_config_entry('session.intra_op.allow_spinning', '0')
+        opts.intra_op_num_threads = 4
+        for model in app.models.values():
+            model.session = ort.InferenceSession(model.model_file, sess_options=opts,
+                                                 providers=['CPUExecutionProvider'])
+    except Exception as exc:  # keep the default sessions if this ORT build differs
+        print(f'[WARNING] Could not disable ONNX Runtime spinning: {exc}')
 
 
 def _move_with_retry(src, dst, attempts=20, delay=0.15):

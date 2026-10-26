@@ -33,6 +33,14 @@ from functions.biometrics_logger import BiometricsLogger
 from functions.preprocessor import Preprocessor
 
 MAX_FRAME_BYTES = 3 * 1024 * 1024
+# Face tracking: while the same face stays in place (box IoU >= threshold), reuse the
+# last AdaFace decision instead of re-running the ~0.7 s CPU model on every frame.
+TRACK_IOU = config.RECOGNITION_BOX_IOU_THRESHOLD
+TRACK_MATCH_SECONDS = 2.5      # re-verify a recognised student at least this often
+TRACK_REJECT_SECONDS = 1.0     # retry strangers / ambiguous faces sooner
+# Mean grey-level difference (0-255) of 32x32 face thumbnails between consecutive
+# frames above which the face is treated as a different person and re-verified.
+TRACK_MAX_APPEARANCE_DIFF = 20.0
 MIN_SIDE, MAX_SIDE = 64, 4096
 MIN_ENROLL_FACE_RATIO = 0.03
 
@@ -92,6 +100,7 @@ class ModelManager:
         self.lock = threading.RLock()
         self._recognizers = {}
         self._state_lock = threading.Lock()
+        self.invalidate_listeners = []      # called when a class gallery changes
         settings.listeners.append(self._apply_settings)
 
     # ------------------------------------------------------------------ loading
@@ -198,6 +207,8 @@ class ModelManager:
                 self._recognizers.clear()
             else:
                 self._recognizers.pop(class_name, None)
+        for listener in self.invalidate_listeners:
+            listener(class_name)
 
     # ------------------------------------------------------------------ status
     def antispoof_status(self):
@@ -257,6 +268,10 @@ class RecognitionService:
         self.sessions = sessions
         self.students = students
         self._bio_logged = set()
+        self._tracks = {}                    # session_id -> last AdaFace decision for the tracked face
+        self._track_lock = threading.Lock()
+        self._clock = time.monotonic
+        models.invalidate_listeners.append(lambda _cls: self._clear_tracks())
 
     # ------------------------------------------------------------- detection
     def _detect(self, frame, s):
@@ -338,6 +353,8 @@ class RecognitionService:
         s = self.settings.get()
         with self.models.lock:
             frame, dets, primary, blockers, incidental = self._detect(frame, s)
+            if not dets or blockers:
+                self._clear_tracks(session_id)      # face left or someone joined: verify again
             if not dets:
                 return done('no_face')
             if blockers:
@@ -356,8 +373,18 @@ class RecognitionService:
             face = self._face(primary, 'primary', 'pending', 'Đang xử lý')
             out['faces'].insert(0, face)
             if not record:
+                self._clear_tracks(session_id)
                 face.update(state='detected', label='Đã phát hiện')
                 return done('preview')
+
+            thumb = self._thumb(frame, primary['box'])
+            cached = self._track_hit(session_id, primary['box'], thumb)
+            if cached is not None:
+                out['cached'] = True
+                face.update(state=cached['face_state'], label=cached['label'], score=cached['score'])
+                out['student'] = cached['student']
+                out['attendance'] = cached['attendance']
+                return done(cached['status'], cached['message'])
 
             spoof = self._antispoof(frame, primary, s)
             out['antispoof'] = spoof
@@ -398,8 +425,12 @@ class RecognitionService:
         if not result['matched']:
             if result.get('ambiguous'):
                 face.update(state='unverifiable', label='Không thể xác minh')
+                self._remember(session_id, primary['box'], thumb, 'ambiguous', face, None, None,
+                               MESSAGES['ambiguous'], TRACK_REJECT_SECONDS)
                 return done('ambiguous')
             face.update(state='unknown', label='Người lạ')
+            self._remember(session_id, primary['box'], thumb, 'unknown', face, None, None,
+                           MESSAGES['unknown'], TRACK_REJECT_SECONDS)
             return done('unknown')
 
         student = {
@@ -417,6 +448,9 @@ class RecognitionService:
             return done('session_closed')
 
         face.update(state='recognized', label=f"{student['student_id']} · {student['student_name']}")
+        self._remember(session_id, primary['box'], thumb, 'already_recorded', face, student, saved,
+                       f"{student['student_name']} đã điểm danh lúc {(saved['timestamp'] or '')[-8:]} "
+                       f"· Điểm tương đồng: {score:.2f}", TRACK_MATCH_SECONDS)
         if saved['status'] == 'inserted':
             self._log_biometrics(session, student, primary)
             return done(
@@ -427,6 +461,60 @@ class RecognitionService:
             'already_recorded',
             f"{student['student_name']} đã điểm danh lúc {(saved['timestamp'] or '')[-8:]} · Điểm tương đồng: {score:.2f}",
         )
+
+    # ---------------------------------------------------------------- tracking
+    @staticmethod
+    def _iou(a, b):
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        iw = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+        ih = max(0, min(ay + ah, by + bh) - max(ay, by))
+        inter = iw * ih
+        union = aw * ah + bw * bh - inter
+        return inter / union if union > 0 else 0.0
+
+    def _clear_tracks(self, session_id=None):
+        with self._track_lock:
+            if session_id is None:
+                self._tracks.clear()
+            else:
+                self._tracks.pop(session_id, None)
+
+    @staticmethod
+    def _thumb(frame, box):
+        x, y, w, h = (int(v) for v in box)
+        crop = frame[max(0, y):y + h, max(0, x):x + w]
+        if crop.size == 0:
+            return None
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        return cv2.resize(gray, (32, 32), interpolation=cv2.INTER_AREA).astype(np.float32)
+
+    def _track_hit(self, session_id, box, thumb):
+        """Last decision for this session if the same face is still in place, unchanged and fresh.
+
+        A cache hit never records attendance; at worst a swapped face shows the
+        previous label until the next AdaFace check (at most TRACK_MATCH_SECONDS).
+        """
+        with self._track_lock:
+            track = self._tracks.get(session_id)
+            if track is None:
+                return None
+            same_place = self._iou(track['box'], box) >= TRACK_IOU
+            same_look = (thumb is not None and track['thumb'] is not None and
+                         float(np.abs(track['thumb'] - thumb).mean()) <= TRACK_MAX_APPEARANCE_DIFF)
+            if self._clock() >= track['expires'] or not (same_place and same_look):
+                self._tracks.pop(session_id, None)
+                return None
+            track['box'], track['thumb'] = tuple(box), thumb    # follow the face frame to frame
+            return track
+
+    def _remember(self, session_id, box, thumb, status, face, student, attendance, message, seconds):
+        with self._track_lock:
+            self._tracks[session_id] = {
+                'box': tuple(box), 'thumb': thumb, 'expires': self._clock() + seconds, 'status': status,
+                'face_state': face['state'], 'label': face['label'], 'score': face.get('score'),
+                'student': student, 'attendance': attendance, 'message': message,
+            }
 
     def _log_biometrics(self, session, student, det):
         key = (session['id'], student['folder'])

@@ -280,6 +280,35 @@ def test_enroll_and_recognition_use_adaface_not_buffalo_arcface(h, client):
     assert ada.calls > before
 
 
+def test_tracking_reuses_adaface_result_while_face_stays(h, client):
+    h.course('A1', 'CPV')
+    _, e = h.enroll('A1', 'S1', 'An')
+    sid = h.open('A1', 'CPV').json()['id']
+    rec = client.container.recognition
+    now = [1000.0]
+    rec._clock = lambda: now[0]
+    ada = client.container.models.adaface
+    assert h.frame(sid, h.face_frame(e))['status'] == 'recognized'
+    calls = ada.calls
+    r = h.frame(sid, h.face_frame(e, box=(212, 108, 200, 240)))      # same face, moved a little
+    assert r['status'] == 'already_recorded' and r['cached'] and ada.calls == calls
+    assert r['faces'][0]['state'] == 'recognized' and r['student']['student_id'] == 'S1'
+    now[0] += 3                                                        # verify interval elapsed
+    r = h.frame(sid, h.face_frame(e))
+    assert not r.get('cached') and ada.calls == calls + 1
+
+
+def test_tracking_resets_when_face_leaves(h, client):
+    h.course('A1', 'CPV')
+    _, e = h.enroll('A1', 'S1', 'An')
+    sid = h.open('A1', 'CPV').json()['id']
+    client.container.recognition._clock = lambda: 1000.0               # cache would never expire
+    assert h.frame(sid, h.face_frame(e))['status'] == 'recognized'
+    assert h.frame(sid, h.fake.scene([]))['status'] == 'no_face'
+    stranger = h.frame(sid, h.face_frame(h.new_embedding()))           # same spot, new person
+    assert stranger['status'] == 'unknown' and not stranger.get('cached')
+
+
 def test_face_without_landmarks_is_unverifiable():
     from functions.adaface_service import embed_detected_face
 

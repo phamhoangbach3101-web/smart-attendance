@@ -27,8 +27,9 @@ import cv2
 import numpy as np
 
 from config import (CLAHE_CLIP, CLAHE_GRID, DETECTION_SCORE_THRESHOLD,
-                    FACE_SIZE, GAUSSIAN_KERNEL, RECOGNITION_COSINE_THRESHOLD,
+                    FACE_SIZE, GAUSSIAN_KERNEL,
                     RECOGNITION_MIN_MARGIN)
+from functions.adaface_service import DEFAULT_COSINE_THRESHOLD as ADAFACE_THRESHOLD
 from functions.matching import decide, identity_scores
 
 IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.bmp')
@@ -63,8 +64,10 @@ class Embedder:
     """Primary-face embedding with an on-disk cache so threshold sweeps are fast."""
 
     def __init__(self, cache_path, preprocess=False):
+        from functions.adaface_service import get_adaface_service
         from functions.face_recognizer import get_insight_app
         self.app = get_insight_app()
+        self.adaface = get_adaface_service()      # same embedding model as the app
         self.preprocess = preprocess
         self.cache_path = cache_path
         self.cache = {}
@@ -80,7 +83,7 @@ class Embedder:
         return cv2.cvtColor(cv2.merge([self._clahe.apply(l), a, b]), cv2.COLOR_LAB2BGR)
 
     def embed(self, path):
-        key = f'{os.path.abspath(path)}|{int(self.preprocess)}|{os.path.getmtime(path)}'
+        key = f'{os.path.abspath(path)}|{int(self.preprocess)}|{os.path.getmtime(path)}|adaface'
         if key in self.cache:
             return self.cache[key]
         img = cv2.imread(path)
@@ -88,16 +91,16 @@ class Embedder:
         if img is not None:
             if self.preprocess:
                 img = self._enhance(img)
+            from functions.adaface_service import embed_detected_face
             t0 = time.perf_counter()
             faces = self.app.get(img)
-            latency = (time.perf_counter() - t0) * 1000
             faces = [f for f in faces if f.det_score >= DETECTION_SCORE_THRESHOLD]
-            result['latency_ms'] = latency
             if faces:
                 # Largest face = primary face, same rule as the app.
                 face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-                result['embedding'] = np.asarray(face.embedding, dtype=np.float32)
+                result['embedding'] = embed_detected_face(self.adaface, img, face)
                 result['det_score'] = float(face.det_score)
+            result['latency_ms'] = (time.perf_counter() - t0) * 1000
         self.cache[key] = result
         return result
 
@@ -291,7 +294,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--data', required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--threshold', type=float, default=RECOGNITION_COSINE_THRESHOLD)
+    ap.add_argument('--threshold', type=float, default=ADAFACE_THRESHOLD)
     ap.add_argument('--margin', type=float, default=RECOGNITION_MIN_MARGIN)
     ap.add_argument('--enroll-samples', type=int, default=0, help='0 = use all enrollment images')
     ap.add_argument('--confirm-frames', type=int, default=1)

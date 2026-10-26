@@ -57,7 +57,8 @@ class BiometricsLogger:
         features = {}
         x, y, w, h = box
         features['Det Score'] = float(raw.det_score) if hasattr(raw, 'det_score') else 0.0
-        emb = raw.embedding.flatten() if hasattr(raw, 'embedding') else np.zeros(512)
+        emb = (np.asarray(raw.embedding).flatten() if getattr(raw, 'embedding', None) is not None
+               else np.zeros(512))
         features['Norm (Vector Length)'] = float(np.linalg.norm(emb))
         cos_sim = 1.0
         if base_emb is not None:

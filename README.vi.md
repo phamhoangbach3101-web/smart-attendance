@@ -66,7 +66,7 @@ FastAPI (backend/app.py)  ── phục vụ luôn frontend/dist tại cùng m�
    └─ services/settings.py     cài đặt lưu trong SQLite
         │
         ▼
-attendance_system/functions/  (dùng lại: FaceDetector SCRFD, FaceRecognizer ArcFace,
+attendance_system/functions/  (dùng lại: FaceDetector SCRFD, FaceRecognizer + AdaFace IR101,
                                matching.py ngưỡng + margin, AntiSpoof, Preprocessor)
 SQLite attendance.db  +  dataset/<LỚP>/<LỚP>_<MÃ>_<Tên>/embeddings.npy, img_XX.jpg
 ```
@@ -74,7 +74,9 @@ SQLite attendance.db  +  dataset/<LỚP>/<LỚP>_<MÃ>_<Tên>/embeddings.npy, im
 **Pipeline cho mỗi khung hình** (`RecognitionService.process_frame`):
 kiểm tra ảnh (≤ 3 MB, 64–4096 px) → tiền xử lý (nếu bật) → phát hiện khuôn mặt → chọn mặt chính.
 Nếu có mặt thứ hai đáng kể thì dừng với trạng thái *Nhiều khuôn mặt*; mặt rất nhỏ ở xa được bỏ qua.
-Tiếp theo: chống giả mạo (nếu bật) → dùng embedding có sẵn từ bước phát hiện → so khớp với lớp (cosine ≥ ngưỡng **và** margin ≥ min_margin) → kiểm tra phiên còn mở **trong cùng transaction** → ghi SQLite → trả kết quả.
+Tiếp theo: chống giả mạo (nếu bật) → embedding **AdaFace IR101** từ 5 điểm mốc (không dùng vector ArcFace của buffalo_sc) → so khớp với lớp (cosine ≥ ngưỡng **và** margin ≥ min_margin) → kiểm tra phiên còn mở **trong cùng transaction** → ghi SQLite → trả kết quả.
+
+**Tốc độ trên CPU** (đo trên i5-13420H): AdaFace mất ~0.7 s/khuôn mặt, nên backend *bám theo khuôn mặt*: khi cùng một khuôn mặt vẫn ở cùng chỗ (IoU ≥ 0.45 và ảnh thu nhỏ 32×32 gần giống khung trước) thì dùng lại kết quả AdaFace gần nhất, xác minh lại tối đa mỗi 2.5 s (người lạ: 1 s). Kết quả dùng lại không bao giờ ghi điểm danh. Nhờ vậy mỗi khung hình chỉ tốn ~15–35 ms, trừ khung cần chạy AdaFace (~0.7 s). Bộ phát hiện chỉ chạy phần detection và tắt *spinning* của ONNX Runtime để không tranh CPU với PyTorch.
 
 ### Dữ liệu (SQLite)
 

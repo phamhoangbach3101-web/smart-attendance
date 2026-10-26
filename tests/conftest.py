@@ -84,6 +84,7 @@ class FakeInsightApp:
         key = self._next
         self._next += 20
         assert key < 250, 'too many scenes'
+        frame = np.full((*size, 3), key, dtype=np.uint8)
         registered = []
         for box, emb in faces:
             self._uid += 1
@@ -95,8 +96,15 @@ class FakeInsightApp:
             self.adaface.register(kps, emb)
             decoy = self.rng.normal(size=512).astype(np.float32)   # buffalo_sc's ArcFace vector
             registered.append((box, kps, decoy / np.linalg.norm(decoy)))
+            # Paint a smooth pattern seeded by the identity, so the same person looks the
+            # same in every frame and different people look different (face tracking).
+            seed = int.from_bytes(np.asarray(emb, dtype=np.float32).tobytes()[:4], 'little')
+            pattern = np.random.default_rng(seed).integers(40, 216, size=(6, 6)).astype(np.uint8)
+            y0, y1, x0, x1 = max(0, y), min(size[0], y + h), max(0, x), min(size[1], x + w)
+            if y1 > y0 and x1 > x0:
+                tex = cv2.resize(pattern, (w, h), interpolation=cv2.INTER_LINEAR)
+                frame[y0:y1, x0:x1] = tex[y0 - y:y1 - y, x0 - x:x1 - x, None]
         self.scenes[key] = registered
-        frame = np.full((*size, 3), key, dtype=np.uint8)
         ok, jpg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
         assert ok
         return jpg.tobytes()
