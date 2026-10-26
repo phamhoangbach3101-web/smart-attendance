@@ -114,7 +114,6 @@ class ModelManager:
         files = {
             'model.pt': os.path.exists(os.path.join(base, 'pretrained_model', 'model.pt')),
             'model.yaml': os.path.exists(os.path.join(base, 'pretrained_model', 'model.yaml')),
-            'model.safetensors': os.path.exists(os.path.join(base, 'model.safetensors')),
         }
         return base, files
 

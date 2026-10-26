@@ -8,7 +8,6 @@ pandas
 openpyxl
 torch
 torchvision
-transformers
 omegaconf
 fvcore
 huggingface_hub
